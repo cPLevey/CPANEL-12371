@@ -1,0 +1,55 @@
+From 07eb61ebe42a3e308226e1f478ec78639239f76d Mon Sep 17 00:00:00 2001
+From: "J. Nick Koston" <nick@cpanel.net>
+Date: Fri, 31 Mar 2017 22:59:53 -0500
+Subject: [PATCH] Ensure a default vhost is created for the main ip
+
+Case CPANEL-12371: If there were no domains on the
+main shared ip, it would be missing from the sharedips
+list in the apache configuration.  This meant that
+requests to apache with the hostname in the host:
+header would fallback to the proxy subdomains
+vhost because there would be no vhost created for
+the main ip.  This broke issuing certificates for
+the hostname.
+
+(From original: COBRA-4465)
+---
+ Cpanel/AdvConfig/apache.pm | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/Cpanel/AdvConfig/apache.pm b/Cpanel/AdvConfig/apache.pm
+index ec6aaa099b4..e66ab8e1e3d 100644
+--- a/Cpanel/AdvConfig/apache.pm
++++ b/Cpanel/AdvConfig/apache.pm
+@@ -1413,6 +1413,19 @@ sub get_httpd_vhosts_hash {
+         $conf->{'namevirtualhosts'} = [ sort keys %{$namevirtualhost_ips} ];
+         $conf->{'sharedips'}        = [];
+ 
++        my $http_port = $conf->{'configured'}{'main_port'} || $main_port;
++
++        # The main ip may not yet have any virtual hosts on
++        # it yet in which case the hostname certificate
++        # can not be issued since the virtualhost for the
++        # for the main ip will not exist.
++        if ( $conf->{'main_ip'} ) {
++            push @{ $conf->{'sharedips'} }, "$conf->{'main_ip'}:$http_port" if !exists $namevirtualhost_ips->{"$conf->{'main_ip'}:$http_port"};
++        }
++        if ( $conf->{'main_ipv6'} ) {
++            push @{ $conf->{'sharedips'} }, "$conf->{'main_ipv6'}:$http_port" if !exists $namevirtualhost_ips->{"$conf->{'main_ipv6'}:$http_port"};
++        }
++
+         my $domainfwdip = Cpanel::DomainForward::get_domain_fwd_ip();
+         $conf->{'domainfwdip'} = $domainfwdip if $domainfwdip;
+ 
+@@ -1425,7 +1438,7 @@ sub get_httpd_vhosts_hash {
+         if ( $cpconf->{'proxysubdomains'} ) {
+ 
+             # add 127.0.0.1 to NameVirtualHosts for proxy subdomains
+-            push @{ $conf->{'namevirtualhosts'} }, "127.0.0.1:" . ( $conf->{'configured'}{'main_port'} || $main_port );
++            push @{ $conf->{'namevirtualhosts'} }, "127.0.0.1:$http_port";
+         }
+     }
+ 
+-- 
+2.12.2
+
